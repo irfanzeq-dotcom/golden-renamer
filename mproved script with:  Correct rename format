@@ -1,0 +1,80 @@
+@echo off
+setlocal enabledelayedexpansion
+
+:: ================================================
+:: Root folder to watch
+set "ROOT=E:\Golden-Dir"
+
+:: Log folder (create if not exists)
+set "LOGDIR=%ROOT%\_logs"
+if not exist "%LOGDIR%" mkdir "%LOGDIR%"
+:: ================================================
+
+:LOOP
+cls
+echo Watching %ROOT% for new files... (Press CTRL+C to stop)
+echo.
+
+:: ================================================
+:: Get today's date in YYYY-MM-DD (locale independent via PowerShell)
+for /f %%a in ('powershell -NoLogo -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set "TODAY=%%a"
+
+:: Daily log files
+set "RENAMED=%LOGDIR%\%TODAY%_renamed.log"
+set "SKIPPED=%LOGDIR%\%TODAY%_skipped.log"
+set "FAILED=%LOGDIR%\%TODAY%_failed.log"
+
+:: Reset counters
+set /a COUNT_RENAMED=0
+set /a COUNT_SKIPPED=0
+set /a COUNT_FAILED=0
+:: ================================================
+
+:: Loop through files recursively
+for /r "%ROOT%" %%F in (*.*) do (
+    set "FILE=%%~nxF"   :: full name
+    set "NAME=%%~nF"    :: name without extension
+    set "EXT=%%~xF"     :: extension (with dot)
+    set "DIR=%%~dpF"
+
+    :: Get parent folder
+    for %%I in ("%%~dpF.") do set "PARENT=%%~nxI"
+
+    :: Skip logs directory
+    if /i "!DIR!"=="%LOGDIR%\" (
+        rem do nothing
+    ) else (
+        :: Skip if already renamed (pattern check)
+        echo !FILE! | findstr /c:"_!PARENT!_!TODAY!" >nul
+        if not errorlevel 1 (
+            echo [!DATE! !TIME!] SKIPPED: %%F >> "%SKIPPED%"
+            set /a COUNT_SKIPPED+=1
+        ) else (
+            set "NEWNAME=(!NAME!)_!PARENT!_!TODAY!!EXT!"
+
+            2>nul (
+                ren "%%F" "!NEWNAME!"
+            )
+            if !errorlevel! equ 0 (
+                echo [!DATE! !TIME!] RENAMED: %%F --> !NEWNAME! >> "%RENAMED%"
+                set /a COUNT_RENAMED+=1
+            ) else (
+                echo [!DATE! !TIME!] FAILED: %%F (rename error) >> "%FAILED%"
+                set /a COUNT_FAILED+=1
+            )
+        )
+    )
+)
+
+:: ================================================
+:: Print cycle summary
+echo ================================
+echo Cycle Summary (%TODAY%)
+echo Renamed : !COUNT_RENAMED!
+echo Skipped : !COUNT_SKIPPED!
+echo Failed  : !COUNT_FAILED!
+echo ================================
+
+:: Wait 30 seconds before next cycle
+timeout /t 30 /nobreak >nul
+goto LOOP
